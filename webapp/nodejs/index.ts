@@ -367,7 +367,9 @@ const categories: Category[] = [
     parent_id: 60,
     category_name: '空気椅子',
     parent_category_name: '座椅子' }
-]
+];
+let paymentServiceUrl: string;
+let shipmentServiceUrl: string;
 
 const fastify = createFastify({
   logger: {level: 'warn'}
@@ -467,6 +469,9 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
     // 実装言語を返す
     language: "nodejs",
   };
+
+  paymentServiceUrl = await getPaymentServiceURL(db);
+  shipmentServiceUrl = await getShipmentServiceURL(db);
 
   await db.release();
 
@@ -875,7 +880,7 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
       }
 
       try {
-        const res = await shipmentStatus(await getShipmentServiceURL(db), {reserve_id: shipping.reserve_id});
+        const res = await shipmentStatus(shipmentServiceUrl, {reserve_id: shipping.reserve_id});
         itemDetail.shipping_status = res.status;
       } catch (error) {
         replyError(reply, "failed to request to shipment service");
@@ -1312,7 +1317,7 @@ async function postBuy(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
   )
 
   try {
-    const scr = await shipmentCreate(await getShipmentServiceURL(db), {
+    const scr = await shipmentCreate(shipmentServiceUrl, {
       to_address: buyer.address,
       to_name: buyer.account_name,
       from_address: seller.address,
@@ -1320,7 +1325,7 @@ async function postBuy(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
     });
 
     try {
-      const pstr = await paymentToken(await getPaymentServiceURL(db), {
+      const pstr = await paymentToken(paymentServiceUrl, {
         shop_id: PaymentServiceIsucariShopID.toString(),
         token: req.body.token,
         api_key: PaymentServiceIsucariAPIKey,
@@ -1615,7 +1620,7 @@ async function postShip(req: FastifyRequest, reply: FastifyReply<ServerResponse>
     return;
   }
 
-  const img = await shipmentRequest(await getShipmentServiceURL(db), {
+  const img = await shipmentRequest(shipmentServiceUrl, {
     reserve_id: shipping.reserve_id,
   });
 
@@ -1765,7 +1770,7 @@ async function postShipDone(req: FastifyRequest, reply: FastifyReply<ServerRespo
     reserve_id: shipping.reserve_id,
   }
   try {
-    const res = await shipmentStatus(await getShipmentServiceURL(db), params)
+    const res = await shipmentStatus(shipmentServiceUrl, params)
     if (!(res.status === ShippingsStatusShipping || res.status === ShippingsStatusDone)) {
       replyError(reply, "shipment service側で配送中か配送完了になっていません", 403);
       await db.rollback();
@@ -1909,7 +1914,7 @@ async function postComplete(req: FastifyRequest, reply: FastifyReply<ServerRespo
   }
 
   try {
-    const res = await shipmentStatus(await getShipmentServiceURL(db), {
+    const res = await shipmentStatus(shipmentServiceUrl, {
       reserve_id: shipping.reserve_id,
     })
     if (res.status !== ShippingsStatusDone) {
@@ -2151,7 +2156,7 @@ async function getSettings(req: FastifyRequest, reply: FastifyReply<ServerRespon
   };
 
   res.user = user;
-  res.payment_service_url = await getPaymentServiceURL(db);
+  res.payment_service_url = paymentServiceUrl;
   res.csrf_token = csrfToken;
 
   res.categories = categories;

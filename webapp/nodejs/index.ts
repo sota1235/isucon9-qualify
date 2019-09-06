@@ -666,10 +666,22 @@ async function getNewCategoryItems(req: FastifyRequest, reply: FastifyReply<Serv
   }
 
   let itemSimples: ItemSimple[] = [];
+  let userData: { [key: string]: UserSimple } = {};
+  let targetUserIds: number[] = [];
 
   for (const item of items) {
-    const seller = await getUserSimpleByID(db, item.seller_id);
-    if (seller === null) {
+    targetUserIds.push(item.seller_id);
+  }
+
+  const userSimples = await getUserSimplesByIDs(db, targetUserIds);
+
+  for (const userSimple of userSimples) {
+    userData[userSimple.id] = userSimple;
+  }
+
+  for (const item of items) {
+    const seller = userData[item.seller_id];
+    if (seller === undefined) {
       replyError(reply, "seller not found", 404)
       await db.release();
       return;

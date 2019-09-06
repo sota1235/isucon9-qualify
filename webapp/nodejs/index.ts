@@ -435,6 +435,7 @@ fastify.get("/register", getIndex);
 fastify.get("/timeline", getIndex);
 fastify.get("/categories/:category_id/items", getIndex);
 fastify.get("/sell", getIndex);
+fastify.get("/items/:item_id", getIndex);
 fastify.get("/items/:item_id/edit", getIndex);
 fastify.get("/items/:item_id/buy", getIndex);
 fastify.get("/buy/complete", getIndex);
@@ -812,6 +813,8 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
   let itemDetails: ItemDetail[] = [];
   let userData: { [key: string]: UserSimple } = {};
   let targetUserIds: number[] = [];
+  let transactionData: { [key: string]: [TransactionEvidence | null, string | null] } = {};
+  let targetTransactionIds: number[] = [];
 
   for (const item of items) {
     targetUserIds.push(item.seller_id);
@@ -819,13 +822,64 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
     if (item.buyer_id !== undefined && item.buyer_id !== 0) {
       targetUserIds.push(item.buyer_id);
     }
+
+    targetTransactionIds.push(item.id);
   }
 
+  // userをまとめて取る
   const userSimples = await getUserSimplesByIDs(db, targetUserIds);
 
   for (const userSimple of userSimples) {
     userData[userSimple.id] = userSimple;
   }
+
+  // transactions, shippingsをまとめて取る
+  const placeholderText = Array(targetTransactionIds.length).fill('?').join(',');
+  const [rows] = await db.query(`
+SELECT
+    te.id as id,
+    te.seller_id as seller_id,
+    te.buyer_id as buyer_id,
+    te.status as te_status,
+    te.item_id as te_item_id,
+    te.item_name as te_item_name,
+    te.item_price as item_price,
+    te.item_description as item_description,
+    te.item_category_id as item_category_id,
+    te.item_root_category_id as item_root_category_id,
+    te.created_at as created_at,
+    te.updated_at as updated_at,
+    s.reserve_id as s_reserve_id
+FROM transaction_evidences te
+    INNER JOIN shippings s
+        ON te.id = s.transaction_evidence_id
+WHERE te.item_id IN (${placeholderText})
+    `, targetTransactionIds);
+  for (const row of rows) {
+    let transactionEvidence: TransactionEvidence | null = null;
+    if (row.id) {
+      transactionEvidence = {
+        id: row.id,
+        seller_id: row.seller_id,
+        buyer_id: row.buyer_id,
+        status: row.te_status,
+        item_id: row.te_item_id,
+        item_name: row.te_item_name,
+        item_price: row.item_price,
+        item_description: row.item_description,
+        item_category_id: row.item_category_id,
+        item_root_category_id: row.item_root_category_id,
+        created_at: row.created_at,
+        updated_at: row.update,
+      };
+    }
+    let reserveId: string | null = null;
+    if (row.s_reserve_id) {
+      reserveId = row.s_reserve_id;
+    }
+    transactionData[row.te_item_id] = [transactionEvidence, reserveId];
+  }
+
 
   for (const item of items) {
     const category = await getCategoryByID(db, item.category_id);
@@ -875,71 +929,13 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
       itemDetail.buyer = buyer;
     }
 
-    const [rows] = await db.query(`
-SELECT 
-    te.id as id, 
-    te.seller_id as seller_id,
-    te.buyer_id as buyer_id,
-    te.status as te_status,
-    te.item_id as te_item_id,
-    te.item_name as te_item_name,
-    te.item_price as item_price,
-    te.item_description as item_description,
-    te.item_category_id as item_category_id,
-    te.item_root_category_id as item_root_category_id,
-    te.created_at as created_at,
-    te.updated_at as updated_at,
-    s.status as s_status,
-    s.reserve_id as s_reserve_id,
-    s.reserve_time as s_reserve_time,
-    s.to_address as s_to_address,
-    s.to_name as s_to_name,
-    s.from_address as s_from_address,
-    s.from_name as s_from_name,
-    s.img_binary as s_img_binary
-FROM transaction_evidences te
-    INNER JOIN shippings s 
-        ON te.id = s.transaction_evidence_id
-WHERE te.item_id = ?
-    `, [item.id]);
-
-    let transactionEvidence: TransactionEvidence | null = null;
-    for (const row of rows) {
-      transactionEvidence = {
-        id: row.id,
-        seller_id: row.seller_id,
-        buyer_id: row.buyer_id,
-        status: row.te_status,
-        item_id: row.te_item_id,
-        item_name: row.te_item_name,
-        item_price: row.item_price,
-        item_description: row.item_description,
-        item_category_id: row.item_category_id,
-        item_root_category_id: row.item_root_category_id,
-        created_at: row.created_at,
-        updated_at: row.update,
-      };
-    }
+    const transactionRecord = transactionData[item.id];
+    let transactionEvidence: TransactionEvidence | null = transactionRecord === undefined ? null : transactionRecord[0];
 
     if (transactionEvidence !== null) {
-      let shipping: Shipping | null = null;
-      for (const row of rows) {
-        shipping = {
-          transaction_evidence_id: row.id,
-          status: row.s_status,
-          item_name: row.te_item_name,
-          item_id: row.te_item_id,
-          reserve_id: row.s_reserve_id,
-          reserve_time: row.s_reserve_time,
-          to_address: row.s_to_address,
-          to_name: row.s_to_name,
-          from_address: row.s_from_address,
-          from_name: row.s_from_name,
-          img_binary: row.s_img_binary,
-        };
-      }
+      let reserveId: string | null = transactionRecord === undefined ? null : transactionRecord[1];
 
-      if (shipping === null) {
+      if (reserveId === null) {
         replyError(reply, "shipping not found", 404);
         await db.rollback();
         await db.release();
@@ -947,7 +943,7 @@ WHERE te.item_id = ?
       }
 
       try {
-        const res = await shipmentStatus(shipmentServiceUrl, {reserve_id: shipping.reserve_id});
+        const res = await shipmentStatus(shipmentServiceUrl, {reserve_id: reserveId});
         itemDetail.shipping_status = res.status;
       } catch (error) {
         replyError(reply, "failed to request to shipment service");

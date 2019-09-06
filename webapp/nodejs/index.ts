@@ -770,15 +770,10 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
   const items: Item[] = [];
   if (itemId > 0 && createdAt > 0) {
     const [rows] = await db.query(
-      "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+      "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND (`created_at` < ? OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
       [
         user.id,
         user.id,
-        ItemStatusOnSale,
-        ItemStatusTrading,
-        ItemStatusSoldOut,
-        ItemStatusCancel,
-        ItemStatusStop,
         new Date(createdAt),
         new Date(createdAt),
         itemId,
@@ -792,15 +787,10 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
 
   } else {
     const [rows] = await db.query(
-      "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+      "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
       [
         user.id,
         user.id,
-        ItemStatusOnSale,
-        ItemStatusTrading,
-        ItemStatusSoldOut,
-        ItemStatusCancel,
-        ItemStatusStop,
         TransactionsPerPage + 1
       ]
     );

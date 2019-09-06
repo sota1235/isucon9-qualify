@@ -810,6 +810,23 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
   }
 
   let itemDetails: ItemDetail[] = [];
+  let userData: { [key: string]: UserSimple } = {};
+  let targetUserIds: number[] = [];
+
+  for (const item of items) {
+    targetUserIds.push(item.seller_id);
+
+    if (item.buyer_id !== undefined && item.buyer_id !== 0) {
+      targetUserIds.push(item.buyer_id);
+    }
+  }
+
+  const userSimples = await getUserSimplesByIDs(db, targetUserIds);
+
+  for (const userSimple of userSimples) {
+    userData[userSimple.id] = userSimple;
+  }
+
   for (const item of items) {
     const category = await getCategoryByID(db, item.category_id);
     if (category === null) {
@@ -819,8 +836,8 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
       return;
     }
 
-    const seller = await getUserSimpleByID(db, item.seller_id);
-    if (seller === null) {
+    const seller = userData[item.seller_id];
+    if (seller === undefined) {
       replyError(reply, "seller not found", 404)
       await db.rollback();
       await db.release();
@@ -847,8 +864,8 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
     };
 
     if (item.buyer_id !== undefined && item.buyer_id !== 0) {
-      const buyer = await getUserSimpleByID(db, item.buyer_id);
-      if (buyer === null) {
+      const buyer = userData[item.buyer_id];
+      if (buyer === undefined) {
         replyError(reply, "buyer not found", 404);
         await db.rollback();
         await db.release();

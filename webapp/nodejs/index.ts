@@ -875,18 +875,68 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
       itemDetail.buyer = buyer;
     }
 
-    const [rows] = await db.query("SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", [item.id]);
+    const [rows] = await db.query(`
+SELECT 
+    te.id as id, 
+    te.seller_id as seller_id,
+    te.buyer_id as buyer_id,
+    te.status as te_status,
+    te.item_id as te_item_id,
+    te.item_name as te_item_name,
+    te.item_price as item_price,
+    te.item_description as item_description,
+    te.item_category_id as item_category_id,
+    te.item_root_category_id as item_root_category_id,
+    te.created_at as created_at,
+    te.updated_at as updated_at,
+    s.status as s_status,
+    s.reserve_id as s_reserve_id,
+    s.reserve_time as s_reserve_time,
+    s.to_address as s_to_address,
+    s.to_name as s_to_name,
+    s.from_address as s_from_address,
+    s.from_name as s_from_name,
+    s.img_binary as s_img_binary
+FROM transaction_evidences te
+    INNER JOIN shippings s 
+        ON te.id = s.transaction_evidence_id
+WHERE te.item_id = ?
+    `, [item.id]);
+
     let transactionEvidence: TransactionEvidence | null = null;
     for (const row of rows) {
-      transactionEvidence = row as TransactionEvidence;
+      transactionEvidence = {
+        id: row.id,
+        seller_id: row.seller_id,
+        buyer_id: row.buyer_id,
+        status: row.te_status,
+        item_id: row.te_item_id,
+        item_name: row.te_item_name,
+        item_price: row.item_price,
+        item_description: row.item_description,
+        item_category_id: row.item_category_id,
+        item_root_category_id: row.item_root_category_id,
+        created_at: row.created_at,
+        updated_at: row.update,
+      };
     }
 
     if (transactionEvidence !== null) {
-      const [rows] = await db.query("SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", [transactionEvidence.id]);
-
       let shipping: Shipping | null = null;
       for (const row of rows) {
-        shipping = row as Shipping;
+        shipping = {
+          transaction_evidence_id: row.id,
+          status: row.s_status,
+          item_name: row.te_item_name,
+          item_id: row.te_item_id,
+          reserve_id: row.s_reserve_id,
+          reserve_time: row.s_reserve_time,
+          to_address: row.s_to_address,
+          to_name: row.s_to_name,
+          from_address: row.s_from_address,
+          from_name: row.s_from_name,
+          img_binary: row.s_img_binary,
+        };
       }
 
       if (shipping === null) {

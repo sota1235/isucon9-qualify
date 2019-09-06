@@ -528,17 +528,29 @@ async function getNewItems(req: FastifyRequest, reply: FastifyReply<ServerRespon
   }
 
   let itemSimples: ItemSimple[] = [];
+  let userData: { [key: string]: UserSimple } = {};
+  let targetUserIds: number[] = [];
 
   for (const item of items) {
-    const seller = await getUserSimpleByID(db, item.seller_id);
-    if (seller === null) {
-      replyError(reply, "seller not found", 404)
+    targetUserIds.push(item.seller_id);
+  }
+
+  const userSimples = await getUserSimplesByIDs(db, targetUserIds);
+
+  for (const userSimple of userSimples) {
+    userData[userSimple.id] = userSimple;
+  }
+
+  for (const item of items) {
+    const seller = userData[item.seller_id];
+    if (seller === undefined) {
+      replyError(reply, "seller not found", 404);
       await db.release();
       return;
     }
     const category = await getCategoryByID(db, item.category_id);
     if (category === null) {
-      replyError(reply, "category not found", 404)
+      replyError(reply, "category not found", 404);
       await db.release();
       return;
     }
@@ -2306,6 +2318,23 @@ async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<Us
     return userSimple;
   }
   return null;
+}
+
+async function getUserSimplesByIDs(db: MySQLQueryable, userIDs: number[]): Promise<UserSimple[]> {
+  const placeholderText = `(${Array(userIDs.length).fill('?').join(',')})`;
+  const userSimples: UserSimple[] = [];
+
+  const [rows,] = await db.query(`SELECT id, account_name, num_sell_items FROM users WHERE id IN ${placeholderText}`, userIDs);
+  for (const row of rows) {
+    const user = row as User;
+    const userSimple: UserSimple = {
+      id: user.id,
+      account_name: user.account_name,
+      num_sell_items: user.num_sell_items,
+    };
+    userSimples.push(userSimple);
+  }
+  return userSimples;
 }
 
 function getCategory(id: number): Category | null {

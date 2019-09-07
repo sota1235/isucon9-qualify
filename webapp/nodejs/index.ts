@@ -370,6 +370,7 @@ const categories: Category[] = [
 ];
 let paymentServiceUrl: string;
 let shipmentServiceUrl: string;
+let userCache: { [key: string]: UserSimple } = {};
 
 const fastify = createFastify({
   logger: {level: 'warn'}
@@ -1552,6 +1553,13 @@ async function postSell(req: FastifyRequest, reply: FastifyReply<ServerResponse>
     seller.id,
   ]);
 
+  const userCacheData: undefined | UserSimple = userCache[seller.id];
+  if (userCacheData !== undefined) {
+    userCache[seller.id] = Object.assign({}, userCacheData, {
+      num_sell_items: userCacheData.num_sell_items + 1,
+    });
+  }
+
   await db.commit();
   await db.release();
 
@@ -2382,6 +2390,11 @@ function replyError(reply: FastifyReply<ServerResponse>, message: string, status
 }
 
 async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<UserSimple | null> {
+  const userData: undefined | UserSimple = userCache[userID.toString()];
+  if (userData !== undefined) {
+    return userData;
+  }
+
   const [rows,] = await db.query("SELECT * FROM `users` WHERE `id` = ?", [userID]);
   for (const row of rows) {
     const user = row as User;
@@ -2390,16 +2403,33 @@ async function getUserSimpleByID(db: MySQLQueryable, userID: number): Promise<Us
       account_name: user.account_name,
       num_sell_items: user.num_sell_items,
     };
+    userCache[user.id.toString()] = userSimple;
     return userSimple;
   }
   return null;
 }
 
 async function getUserSimplesByIDs(db: MySQLQueryable, userIDs: number[]): Promise<UserSimple[]> {
-  const placeholderText = `(${Array(userIDs.length).fill('?').join(',')})`;
   const userSimples: UserSimple[] = [];
+  const targetUserIDs: number[] = [];
 
-  const [rows,] = await db.query(`SELECT id, account_name, num_sell_items FROM users WHERE id IN ${placeholderText}`, userIDs);
+  for (const userID of userIDs) {
+    const userData: null | UserSimple = userCache[userID];
+
+    if (userData !== undefined) {
+      userSimples.push(userData);
+    } else {
+      targetUserIDs.push(userID);
+    }
+  }
+
+  if (targetUserIDs.length === 0) {
+    return userSimples;
+  }
+
+  const placeholderText = `(${Array(targetUserIDs.length).fill('?').join(',')})`;
+
+  const [rows,] = await db.query(`SELECT id, account_name, num_sell_items FROM users WHERE id IN ${placeholderText}`, targetUserIDs);
   for (const row of rows) {
     const user = row as User;
     const userSimple: UserSimple = {
@@ -2407,6 +2437,7 @@ async function getUserSimplesByIDs(db: MySQLQueryable, userIDs: number[]): Promi
       account_name: user.account_name,
       num_sell_items: user.num_sell_items,
     };
+    userCache[user.id.toString()] = userSimple;
     userSimples.push(userSimple);
   }
   return userSimples;

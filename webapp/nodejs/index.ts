@@ -793,7 +793,16 @@ async function getTransactions(req: FastifyRequest, reply: FastifyReply<ServerRe
 
   } else {
     const [rows] = await db.query(
-      "SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+      `
+SELECT * 
+FROM items 
+WHERE seller_id = ? 
+UNION
+SELECT *
+FROM items
+WHERE buyer_id = ?
+ORDER BY created_at DESC, id DESC LIMIT ?
+`,
       [
         user.id,
         user.id,

@@ -13,7 +13,8 @@ import fastifyStatic from "fastify-static";
 import fastifyMultipart from 'fastify-multipart';
 import crypt from "crypto";
 import bcrypt from "bcrypt";
-import {paymentToken, shipmentCreate, shipmentRequest, shipmentStatus} from "./api";
+import {paymentToken, shipmentCreate, shipmentRequest, shipmentStatus, ShipmentStatusResponse} from "./api";
+import {ShippingStatus} from "../frontend/src/dataObjects/shipping";
 
 const execFile = util.promisify(childProcess.execFile);
 
@@ -885,6 +886,8 @@ WHERE te.item_id IN (${placeholderText})
     transactionData[row.te_item_id] = [transactionEvidence, reserveId];
   }
 
+  let reserveIDMap: {[itemID: string]: string } = {};
+  let reserveIDs: string[] = [];
 
   for (const item of items) {
     const category = await getCategoryByID(db, item.category_id);
@@ -947,22 +950,39 @@ WHERE te.item_id IN (${placeholderText})
         return;
       }
 
-      try {
-        const res = await shipmentStatus(shipmentServiceUrl, {reserve_id: reserveId});
-        itemDetail.shipping_status = res.status;
-      } catch (error) {
-        replyError(reply, "failed to request to shipment service");
-        await db.rollback();
-        await db.release();
-        return;
-      }
-
+      reserveIDMap[itemDetail.id.toString()] = reserveId;
+      reserveIDs.push(reserveId);
       itemDetail.transaction_evidence_id = transactionEvidence.id;
       itemDetail.transaction_evidence_status = transactionEvidence.status;
     }
 
     itemDetails.push(itemDetail);
 
+  }
+
+  // ShipmentStatusをまとめて取る
+  const shipmentStatusResults = await bulkShipmentStatus(reserveIDs);
+  for (const itemD of itemDetails) {
+    if (itemD.transaction_evidence_id !== undefined) {
+      const rID = reserveIDMap[itemD.id] as string;
+      let shipmentStatusResult: undefined | ShipmentStatusResponse = undefined;
+
+      for (const r of shipmentStatusResults) {
+        if (r.reserveID === rID) {
+          shipmentStatusResult = r.result;
+          break;
+        }
+      }
+
+      if (shipmentStatusResult === undefined) {
+        replyError(reply, "failed to request to shipment service");
+        await db.rollback();
+        await db.release();
+        return;
+      }
+
+      itemD.shipping_status = shipmentStatusResult.status;
+    }
   }
 
   await db.commit();
@@ -2470,6 +2490,17 @@ async function getCategoryByID(db: MySQLQueryable, categoryId: number): Promise<
   }
 
   return category;
+}
+
+async function bulkShipmentStatus(reserveIDs: string[]): Promise<{ reserveID: string, result: ShipmentStatusResponse }[]> {
+  const requests = reserveIDs.map((reserveID) => Promise.resolve().then(async () => {
+      return {
+        reserveID,
+        result: await shipmentStatus(shipmentServiceUrl, {reserve_id: reserveID}),
+      };
+    }),
+  );
+  return await Promise.all<{ reserveID: string, result: ShipmentStatusResponse }>(requests);
 }
 
 async function encryptPassword(password: string): Promise<string> {

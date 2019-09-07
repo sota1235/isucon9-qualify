@@ -26,7 +26,7 @@ type ShipmentStatusRequest = {
     reserve_id: string,
 }
 
-type ShipmentStatusResponse = {
+export type ShipmentStatusResponse = {
     status: string,
     reserve_time: number,
 }

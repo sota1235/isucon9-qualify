@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 
 import TraceError from "trace-error";
-import createFastify, {FastifyRequest, FastifyReply} from "fastify";
+import createFastify, {FastifyRequest, FastifyReply, FastifyInstance, FastifyError} from "fastify";
 // @ts-ignore
 import fastifyMysql from "fastify-mysql";
 import fastifyCookie from "fastify-cookie";
@@ -373,6 +373,11 @@ let shipmentServiceUrl: string;
 
 const fastify = createFastify({
   logger: {level: 'warn'}
+});
+
+fastify.addHook('onRequest', (request, reply, done) => {
+  console.log(`${request.req.method} ${request.req.url}`);
+  done();
 });
 
 fastify.register(fastifyStatic, {
@@ -1098,7 +1103,7 @@ async function getItem(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
     return;
   }
 
-  const [rows] = await db.query("SELECT * FROM `items` WHERE `id` = ?", [itemId]);
+  const [rows] = await db.query("SELECT * FROM items WHERE id = ?", [itemId]);
   let item: Item | null = null;
 
   for (const row of rows) {

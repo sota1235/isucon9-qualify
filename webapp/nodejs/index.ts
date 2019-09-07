@@ -1177,7 +1177,7 @@ async function getItem(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
     }
 
     if (transactionEvidence !== null) {
-      const [rows] = await db.query("SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", [transactionEvidence.id])
+      const [rows] = await db.query("SELECT status FROM `shippings` WHERE `transaction_evidence_id` = ?", [transactionEvidence.id])
       let shipping: Shipping | null = null;
       for (const row of rows) {
         shipping = row as Shipping;

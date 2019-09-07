@@ -42,6 +42,17 @@ type PaymentTokenResponse = {
     status: string,
 }
 
+const shipmentCache: { [key: string]: ShipmentStatusResponse } = {};
+
+function getShipmentCache(reserveId: string): ShipmentStatusResponse | undefined {
+    const shipmentStatusCache: undefined | ShipmentStatusResponse = shipmentCache[reserveId];
+    if (shipmentStatusCache !== undefined) {
+        return shipmentStatusCache;
+    }
+
+    return undefined;
+}
+
 export async function shipmentCreate(url: string, params: ShipmentCreateRequest): Promise<ShipmentCreateResponse> {
     const res = await client.post(url + "/create", params, {
         headers: {
@@ -53,7 +64,14 @@ export async function shipmentCreate(url: string, params: ShipmentCreateRequest)
         throw res;
     }
 
-    return res.data as ShipmentCreateResponse;
+    const data = res.data as ShipmentCreateResponse;
+
+    shipmentCache[data.reserve_id] = {
+        status: 'initial',
+        reserve_time: data.reserve_time,
+    };
+
+    return data;
 }
 
 export async function shipmentRequest(url: string, params: ShipmentRequestRequest): Promise<ArrayBuffer> {
@@ -68,10 +86,28 @@ export async function shipmentRequest(url: string, params: ShipmentRequestReques
         throw res;
     }
 
+    const shipmentCacheData = getShipmentCache(params.reserve_id);
+    if (shipmentCacheData !== undefined) {
+        shipmentCache[params.reserve_id] = Object.assign({}, shipmentCacheData, {
+            status: 'wait_pickup',
+        });
+    }
+
     return res.data;
 }
 
 export async function shipmentStatus(url: string, params: ShipmentStatusRequest): Promise<ShipmentStatusResponse> {
+    const shipmentStatusCache = getShipmentCache(params.reserve_id);
+    if (shipmentStatusCache !== undefined) {
+        // QRコードが呼ばれてwait_pickup -> shippingになったかどうかはアプリから察知できない
+        if (
+          shipmentStatusCache.status === 'initial' ||
+          shipmentStatusCache.status === 'done'
+        ) {
+            return shipmentStatusCache;
+        }
+    }
+
     const res = await client.post(url + "/status", params, {
         headers: {
             'User-Agent': UserAgent,
@@ -82,6 +118,7 @@ export async function shipmentStatus(url: string, params: ShipmentStatusRequest)
         throw res;
     }
 
+    shipmentCache[params.reserve_id] = res.data;
     return res.data as ShipmentStatusResponse;
 }
 

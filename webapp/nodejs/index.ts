@@ -3,6 +3,7 @@ import util, {isNullOrUndefined, types} from "util";
 import childProcess from "child_process";
 import path from "path";
 import fs from "fs";
+import crypto from 'crypto';
 
 import TraceError from "trace-error";
 import createFastify, {FastifyRequest, FastifyReply, FastifyInstance, FastifyError} from "fastify";
@@ -372,6 +373,7 @@ const categories: Category[] = [
 let paymentServiceUrl: string;
 let shipmentServiceUrl: string;
 let userCache: { [key: string]: UserSimple } = {};
+let hashedPasswordCache: { [accountName: string]: string } = {};
 
 const setURLs = async () => {
   try {
@@ -2303,10 +2305,27 @@ async function postLogin(req: FastifyRequest, reply: FastifyReply<ServerResponse
     return;
   }
 
-  if (!await comparePassword(password, user.hashed_password)) {
-    replyError(reply, "アカウント名かパスワードが間違えています", 401);
-    await db.release();
-    return;
+  const algorithm = 'sha256';
+  const getHashed = (pass: string) => crypto.createHash(algorithm).update(pass).digest('base64');
+
+  if (hashedPasswordCache[user.id.toString()] !== undefined) {
+    const inputPass = getHashed(password);
+    const hashedPass = hashedPasswordCache[user.id.toString()];
+    if (inputPass !== hashedPass) {
+      replyError(reply, "アカウント名かパスワードが間違えています", 401);
+      await db.release();
+      return;
+    }
+  } else {
+    if (!await comparePassword(password, user.hashed_password)) {
+      replyError(reply, "アカウント名かパスワードが間違えています", 401);
+      await db.release();
+      return;
+    }
+  }
+
+  if (hashedPasswordCache[user.id.toString()] === undefined) {
+    hashedPasswordCache[user.id.toString()] = getHashed(password);
   }
 
   reply.setCookie("user_id", user.id.toString(), {

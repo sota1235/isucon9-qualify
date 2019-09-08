@@ -374,6 +374,14 @@ let paymentServiceUrl: string;
 let shipmentServiceUrl: string;
 let userCache: { [key: string]: UserSimple } = {};
 let hashedPasswordCache: { [accountName: string]: string } = {};
+let doneItemIds: number[] = [];
+
+// initialize時にclearする
+const clearCache = () => {
+  userCache = {};
+  hashedPasswordCache = {};
+  doneItemIds = [];
+};
 
 const setURLs = async () => {
   try {
@@ -493,6 +501,20 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
 
   paymentServiceUrl = await getPaymentServiceURL(db);
   shipmentServiceUrl = await getShipmentServiceURL(db);
+  clearCache();
+
+  // userキャッシュ
+  const [rows] = await db.query("SELECT * FROM `users`");
+
+  for (const row of rows) {
+    const user = row as User;
+    const userSimple: UserSimple = {
+      id: user.id,
+      account_name: user.account_name,
+      num_sell_items: user.num_sell_items,
+    };
+    userCache[row.id.toString()] = userSimple;
+  }
 
   await db.release();
 
@@ -1210,23 +1232,31 @@ async function getItem(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
     }
 
     if (transactionEvidence !== null) {
-      const [rows] = await db.query("SELECT status FROM `shippings` WHERE `transaction_evidence_id` = ?", [transactionEvidence.id])
-      let shipping: Shipping | null = null;
-      for (const row of rows) {
-        shipping = row as Shipping;
+      let status: string | null = null;
+
+      if (doneItemIds.includes(itemDetail.id)) {
+        status = 'done';
+      } else {
+        const [rows] = await db.query("SELECT status FROM `shippings` WHERE `transaction_evidence_id` = ?", [transactionEvidence.id])
+        for (const row of rows) {
+          status = row.status;
+        }
       }
 
-      if (shipping === null) {
+      if (status === null) {
         replyError(reply, "shipping not found", 404);
         await db.release();
         return;
       }
 
+      if (status === 'done') {
+        doneItemIds.push(itemDetail.id);
+      }
+
       itemDetail.transaction_evidence_id = transactionEvidence.id;
       itemDetail.transaction_evidence_status = transactionEvidence.status;
-      itemDetail.shipping_status = shipping.status;
+      itemDetail.shipping_status = status;
     }
-
   }
 
   await db.release();
@@ -2045,7 +2075,7 @@ async function postComplete(req: FastifyRequest, reply: FastifyReply<ServerRespo
     ShippingsStatusDone,
     new Date(),
     transactionEvidence.id,
-  ])
+  ]);
 
   await db.query("UPDATE `transaction_evidences` SET `status` = ?, `updated_at` = ? WHERE `id` = ?", [
     TransactionEvidenceStatusDone,
@@ -2061,6 +2091,8 @@ async function postComplete(req: FastifyRequest, reply: FastifyReply<ServerRespo
 
   await db.commit();
   await db.release();
+
+  doneItemIds.push(item.id);
 
   reply
     .code(200)
@@ -2122,6 +2154,9 @@ async function getQRCode(req: FastifyRequest, reply: FastifyReply<ServerResponse
   }
 
   if (shipping.status !== ShippingsStatusWaitPickup && shipping.status !== ShippingsStatusShipping) {
+    if (shipping.status === 'done') {
+      doneItemIds.push(Number(transactionEvidence.item_id));
+    }
     replyError(reply, "qrcode not available", 403);
     await db.release();
     return;

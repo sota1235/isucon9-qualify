@@ -2289,7 +2289,7 @@ async function postLogin(req: FastifyRequest, reply: FastifyReply<ServerResponse
   }
 
   const db = await getDBConnection();
-  const [rows] = await db.query("SELECT * FROM `users` WHERE `account_name` = ?", [accountName])
+  const [rows] = await db.query("SELECT id, account_name, hashed_password, address, num_sell_items, last_bump, created_at FROM `users` WHERE `account_name` = ?", [accountName])
   let user: User | null = null;
   for (const row of rows) {
     user = row as User;

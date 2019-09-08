@@ -484,7 +484,7 @@ async function postInitialize(req: FastifyRequest, reply: FastifyReply<ServerRes
 
   const res = {
     // キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-    campaign: 0,
+    campaign: 1,
     // 実装言語を返す
     language: "nodejs",
   };
@@ -1416,63 +1416,65 @@ async function postBuy(req: FastifyRequest, reply: FastifyReply<ServerResponse>)
   )
 
   try {
-    const scr = await shipmentCreate(shipmentServiceUrl, {
-      to_address: buyer.address,
-      to_name: buyer.account_name,
-      from_address: seller.address,
-      from_name: seller.account_name,
-    });
-
-    try {
-      const pstr = await paymentToken(paymentServiceUrl, {
+    const [scr, pstr] = await Promise.all([
+      shipmentCreate(shipmentServiceUrl, {
+        to_address: buyer.address,
+        to_name: buyer.account_name,
+        from_address: seller.address,
+        from_name: seller.account_name,
+      }),
+      paymentToken(paymentServiceUrl, {
         shop_id: PaymentServiceIsucariShopID.toString(),
         token: req.body.token,
         api_key: PaymentServiceIsucariAPIKey,
         price: targetItem.price,
-      });
+      }),
+    ]);
 
-      if (pstr.status === "invalid") {
-        replyError(reply, "カード情報に誤りがあります", 400);
-        await db.rollback();
-        await db.release();
-        return;
-      }
-      if (pstr.status === "fail") {
-        replyError(reply, "カードの残高が足りません", 400);
-        await db.rollback();
-        await db.release();
-        return;
-      }
+    if (pstr.status === "invalid") {
+      replyError(reply, "カード情報に誤りがあります", 400);
+      await db.rollback();
+      await db.release();
+      return;
+    }
+    if (pstr.status === "fail") {
+      replyError(reply, "カードの残高が足りません", 400);
+      await db.rollback();
+      await db.release();
+      return;
+    }
 
-      if (pstr.status !== 'ok') {
-        replyError(reply, "想定外のエラー", 400)
-        await db.rollback()
-        await db.release();
-        return;
-      }
+    if (pstr.status !== 'ok') {
+      replyError(reply, "想定外のエラー", 400)
+      await db.rollback()
+      await db.release();
+      return;
+    }
 
-      await db.query(
-        "INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_name`, `item_id`, `reserve_id`, `reserve_time`, `to_address`, `to_name`, `from_address`, `from_name`, `img_binary`) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        [
-          transactionEvidenceId,
-          ShippingsStatusInitial,
-          targetItem.name,
-          targetItem.id,
-          scr.reserve_id,
-          scr.reserve_time,
-          buyer.address,
-          buyer.account_name,
-          seller.address,
-          seller.account_name,
-          "",
-        ]
-      );
+    await db.query(
+      "INSERT INTO `shippings` (`transaction_evidence_id`, `status`, `item_name`, `item_id`, `reserve_id`, `reserve_time`, `to_address`, `to_name`, `from_address`, `from_name`, `img_binary`) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      [
+        transactionEvidenceId,
+        ShippingsStatusInitial,
+        targetItem.name,
+        targetItem.id,
+        scr.reserve_id,
+        scr.reserve_time,
+        buyer.address,
+        buyer.account_name,
+        seller.address,
+        seller.account_name,
+        "",
+      ]
+    );
+    /**
     } catch (e) {
       replyError(reply, "payment service is failed", 500)
       await db.rollback();
       await db.release();
       return;
     }
+     */
   } catch (error) {
     replyError(reply, "failed to request to shipment service", 500);
     await db.rollback();

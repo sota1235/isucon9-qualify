@@ -373,6 +373,17 @@ let paymentServiceUrl: string;
 let shipmentServiceUrl: string;
 let userCache: { [key: string]: UserSimple } = {};
 
+const setURLs = async () => {
+  try {
+    const db = await getDBConnection();
+    paymentServiceUrl = await getPaymentServiceURL(db);
+    shipmentServiceUrl = await getShipmentServiceURL(db);
+    console.log('url set succeeded');
+  } catch (err) {
+    console.error(err);
+  }
+};
+
 const fastify = createFastify({
   logger: {level: 'warn'}
 });
@@ -2411,6 +2422,9 @@ fastify.listen(8000, (err, _address) => {
     throw new TraceError("Failed to listening", err);
   }
 });
+fastify.after(() => {
+  setURLs();
+});
 
 function replyError(reply: FastifyReply<ServerResponse>, message: string, status = 500) {
   reply.code(status)
@@ -2493,10 +2507,11 @@ async function getCategoryByID(db: MySQLQueryable, categoryId: number): Promise<
 }
 
 async function bulkShipmentStatus(reserveIDs: string[]): Promise<{ reserveID: string, result: ShipmentStatusResponse }[]> {
+  const url = shipmentServiceUrl;
   const requests = reserveIDs.map((reserveID) => Promise.resolve().then(async () => {
       return {
         reserveID,
-        result: await shipmentStatus(shipmentServiceUrl, {reserve_id: reserveID}),
+        result: await shipmentStatus(url, {reserve_id: reserveID}),
       };
     }),
   );
@@ -2566,3 +2581,4 @@ async function getShipmentServiceURL(db: MySQLQueryable): Promise<string> {
 function getImageURL(imageName: string) {
   return `/upload/${imageName}`;
 }
+
